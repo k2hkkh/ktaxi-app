@@ -1,0 +1,1173 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>K-TAXI 통합 스마트 운행기록장</title>
+  
+  <!-- PWA 모바일 전체화면 (상단 주소창 제거) 설정 -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="K-TAXI">
+  <meta name="theme-color" content="#0B0F17">
+
+  <!-- 별도 이미지 파일 필요 없는 내장형 녹색 택시 아이콘 (SVG Data URL) -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='110' fill='%230B0F17'/%3E%3Cpath d='M210 90h92l15 35h-122z' fill='%23F59E0B'/%3E%3Cpath d='M120 280l30-110c5-18 20-30 40-30h132c20 0 35 12 40 30l30 110v120c0 15-12 25-25 25h-20c-15 0-25-10-25-25v-20H170v20c0 15-10 25-25 25h-20c-13 0-25-10-25-25V280z' fill='%2310B981'/%3E%3Cpath d='M160 250l18-70c3-10 12-18 24-18h108c12 0 21 8 24 18l18 70H160z' fill='%23064E3B'/%3E%3Ccircle cx='165' cy='310' r='18' fill='%23FEF08A'/%3E%3Ccircle cx='347' cy='310' r='18' fill='%23FEF08A'/%3E%3Ctext x='256' y='360' font-family='sans-serif' font-size='38' font-weight='900' fill='%23FFFFFF' text-anchor='middle'%3EK%3C/text%3E%3C/svg%3E">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='110' fill='%230B0F17'/%3E%3Cpath d='M210 90h92l15 35h-122z' fill='%23F59E0B'/%3E%3Cpath d='M120 280l30-110c5-18 20-30 40-30h132c20 0 35 12 40 30l30 110v120c0 15-12 25-25 25h-20c-15 0-25-10-25-25v-20H170v20c0 15-10 25-25 25h-20c-13 0-25-10-25-25V280z' fill='%2310B981'/%3E%3Cpath d='M160 250l18-70c3-10 12-18 24-18h108c12 0 21 8 24 18l18 70H160z' fill='%23064E3B'/%3E%3Ccircle cx='165' cy='310' r='18' fill='%23FEF08A'/%3E%3Ccircle cx='347' cy='310' r='18' fill='%23FEF08A'/%3E%3Ctext x='256' y='360' font-family='sans-serif' font-size='38' font-weight='900' fill='%23FFFFFF' text-anchor='middle'%3EK%3C/text%3E%3C/svg%3E">
+
+  <!-- 인라인 웹 매니페스트 (단일 파일 유지) -->
+  <link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22K-TAXI%20%EC%8A%A4%EB%A7%88%ED%8A%B8%20%EC%9A%B4%ED%96%89%EA%B8%B0%EB%A1%9D%EC%9E%A5%22%2C%22short_name%22%3A%22K-TAXI%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%230B0F17%22%2C%22theme_color%22%3A%22%230B0F17%22%7D">
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body {
+      background-color: #0B0F17;
+      color: #F8FAFC;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Malgun Gothic", sans-serif;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 16px); }
+    input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
+  </style>
+</head>
+<body class="h-[100dvh] flex flex-col justify-between overflow-hidden select-none">
+  <div id="root" class="h-full flex flex-col"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    const SHIFT_MODES = [
+      { id: 'SINGLE_1', name: '1인 1차제', target: 201000, desc: '법인 종일' },
+      { id: 'SPLIT_12', name: '12시간 교대', target: 130000, desc: '법인 주/야' },
+      { id: 'SPLIT_24', name: '24시간 교대', target: 301000, desc: '법인 격일(동적배분)' }
+    ];
+
+    const DEFAULT_MAINTENANCE = [
+      { id: 'm1', name: '엔진오일 / 필터', cycle: 10000, lastKm: 120000 },
+      { id: 'm2', name: '브레이크 라이닝', cycle: 40000, lastKm: 100000 },
+      { id: 'm3', name: '에어컨 필터', cycle: 15000, lastKm: 125000 },
+      { id: 'm4', name: '미션오일', cycle: 80000, lastKm: 80000 },
+      { id: 'm5', name: '타이어 세트', cycle: 50000, lastKm: 110000 }
+    ];
+
+    const getTodayStr = () => new Date().toISOString().slice(0, 10);
+
+    function App() {
+      const todayStr = getTodayStr();
+      const [viewDate, setViewDate] = useState(todayStr);
+      const [currentTab, setCurrentTab] = useState('hud');
+      
+      const [taxiType, setTaxiType] = useState(() => localStorage.getItem('ktaxi_type') || 'CORP');
+      const [carNo, setCarNo] = useState(() => localStorage.getItem('ktaxi_carno') || '서울31바1234');
+      const [modeId, setModeId] = useState(() => localStorage.getItem('ktaxi_mode') || 'SINGLE_1');
+      const [myHours, setMyHours] = useState(() => Number(localStorage.getItem('ktaxi_hours')) || 12);
+      const [dynamicOn, setDynamicOn] = useState(() => localStorage.getItem('ktaxi_dyn') === 'true');
+
+      const [records, setRecords] = useState(() => {
+        const s = localStorage.getItem('ktaxi_records_v4');
+        return s ? JSON.parse(s) : {};
+      });
+
+      const [expenses, setExpenses] = useState(() => {
+        const s = localStorage.getItem('ktaxi_expenses_v4');
+        return s ? JSON.parse(s) : [
+          { id: 1, type: 'car', category: '엔진오일 / 필터', desc: '정기교체', amount: 55000, date: todayStr },
+          { id: 2, type: 'company', category: 'LPG 충전', desc: '만충', amount: 42000, date: todayStr },
+          { id: 3, type: 'personal', category: '식비/음료', desc: '점심 백반', amount: 9000, date: todayStr }
+        ];
+      });
+
+      const [maintList, setMaintList] = useState(() => {
+        const s = localStorage.getItem('ktaxi_maint_v4');
+        return s ? JSON.parse(s) : DEFAULT_MAINTENANCE;
+      });
+
+      const [holidays, setHolidays] = useState(() => {
+        const s = localStorage.getItem('ktaxi_holidays_v4');
+        return s ? JSON.parse(s) : [];
+      });
+
+      const [commSubTab, setCommSubTab] = useState('shift');
+      const [shiftPosts, setShiftPosts] = useState(() => {
+        const s = localStorage.getItem('ktaxi_shift_posts_v4');
+        return s ? JSON.parse(s) : [
+          { id: 1, carNo: '서울31바1234', sender: '교대 기사', text: '가스 절반 채워둠. 타이어 공기압 체크 완료', time: '17:30' }
+        ];
+      });
+      const [roadPosts, setRoadPosts] = useState(() => {
+        const s = localStorage.getItem('ktaxi_road_posts_v4');
+        return s ? JSON.parse(s) : [
+          { id: 1, title: '단속 알림', text: '시청 앞 삼거리 이동식 카메라 단속 중', time: '15:10' }
+        ];
+      });
+
+      const [routines, setRoutines] = useState(() => {
+        const s = localStorage.getItem('ktaxi_routines_v4');
+        return s ? JSON.parse(s) : [
+          { id: 1, label: '혈압약 복용', time: '13:00', enabled: true },
+          { id: 2, label: '오후 스트레칭 휴식', time: '16:00', enabled: true }
+        ];
+      });
+
+      const [modal, setModal] = useState(false);
+      const [timeModal, setTimeModal] = useState(null);
+      const [bookModal, setBookModal] = useState(false);
+      const fileInputRef = useRef(null);
+      
+      const [timeLeft, setTimeLeft] = useState(0);
+      const [timerRunning, setTimerRunning] = useState(false);
+      const [isAlarmRinging, setIsAlarmRinging] = useState(false);
+      const [alarmBanner, setAlarmBanner] = useState('');
+      const audioCtxRef = useRef(null);
+      const alarmRef = useRef(null);
+      const longPressTimeout = useRef(null);
+      const isLongPressed = useRef(false);
+
+      const activeData = records[viewDate] || {
+        income: { card: 0, cash: 0, bank: 0, count: 0 },
+        workTime: { start: '', end: '' },
+        mileage: { start: 128500, end: 128750 },
+        status: '대기'
+      };
+
+      useEffect(() => { localStorage.setItem('ktaxi_type', taxiType); }, [taxiType]);
+      useEffect(() => { localStorage.setItem('ktaxi_carno', carNo); }, [carNo]);
+      useEffect(() => { localStorage.setItem('ktaxi_mode', modeId); }, [modeId]);
+      useEffect(() => { localStorage.setItem('ktaxi_hours', myHours); }, [myHours]);
+      useEffect(() => { localStorage.setItem('ktaxi_dyn', dynamicOn); }, [dynamicOn]);
+      useEffect(() => { localStorage.setItem('ktaxi_records_v4', JSON.stringify(records)); }, [records]);
+      useEffect(() => { localStorage.setItem('ktaxi_expenses_v4', JSON.stringify(expenses)); }, [expenses]);
+      useEffect(() => { localStorage.setItem('ktaxi_maint_v4', JSON.stringify(maintList)); }, [maintList]);
+      useEffect(() => { localStorage.setItem('ktaxi_holidays_v4', JSON.stringify(holidays)); }, [holidays]);
+      useEffect(() => { localStorage.setItem('ktaxi_shift_posts_v4', JSON.stringify(shiftPosts)); }, [shiftPosts]);
+      useEffect(() => { localStorage.setItem('ktaxi_road_posts_v4', JSON.stringify(roadPosts)); }, [roadPosts]);
+      useEffect(() => { localStorage.setItem('ktaxi_routines_v4', JSON.stringify(routines)); }, [routines]);
+
+      const playChime = () => {
+        try {
+          const ctx = audioCtxRef.current || new (window.AudioContext || window.webkitAudioContext)();
+          audioCtxRef.current = ctx;
+          if (ctx.state === 'suspended') ctx.resume();
+          [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.18);
+            gain.gain.setValueAtTime(0.3, ctx.currentTime + idx * 0.18);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.18 + 0.4);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(ctx.currentTime + idx * 0.18);
+            osc.stop(ctx.currentTime + idx * 0.18 + 0.45);
+          });
+        } catch (e) {}
+      };
+
+      useEffect(() => {
+        const interval = setInterval(() => {
+          const now = new Date();
+          const currentMin = now.getHours() * 60 + now.getMinutes();
+          routines.forEach(r => {
+            if (!r.enabled || !r.time) return;
+            const [rh, rm] = r.time.split(':').map(Number);
+            const targetMin = rh * 60 + rm;
+            if (targetMin - currentMin === 10 && now.getSeconds() < 15) {
+              setAlarmBanner(`⏳ [임박] 10분 후 '${r.label}' 예정입니다.`);
+            }
+            if (targetMin === currentMin && !isAlarmRinging) {
+              setAlarmBanner(`⏰ [알람] '${r.label}' 시간입니다!`);
+              setIsAlarmRinging(true);
+              playChime();
+              alarmRef.current = setInterval(playChime, 1800);
+            }
+          });
+        }, 15000);
+        return () => clearInterval(interval);
+      }, [routines, isAlarmRinging]);
+
+      useEffect(() => {
+        let t = null;
+        if (timerRunning && timeLeft > 0) t = setInterval(() => setTimeLeft(n => n - 1), 1000);
+        else if (timerRunning && timeLeft === 0) {
+          setTimerRunning(false);
+          setAlarmBanner('🔔 쪽잠 기상 시간입니다!');
+          setIsAlarmRinging(true);
+          playChime();
+          alarmRef.current = setInterval(playChime, 1800);
+        }
+        return () => clearInterval(t);
+      }, [timerRunning, timeLeft]);
+
+      const stopAlarm = () => {
+        clearInterval(alarmRef.current);
+        setIsAlarmRinging(false);
+        setAlarmBanner('');
+        setTimeLeft(0);
+        setTimerRunning(false);
+      };
+
+      const updateActiveRecord = (updater) => {
+        setRecords(prev => {
+          const current = prev[viewDate] || {
+            income: { card: 0, cash: 0, bank: 0, count: 0 },
+            workTime: { start: '', end: '' },
+            mileage: { start: 128500, end: 128750 },
+            status: '대기'
+          };
+          return { ...prev, [viewDate]: updater(current) };
+        });
+      };
+
+      const getWorkMinutes = (wt) => {
+        if (!wt?.start || !wt?.end) return 0;
+        const [sh, sm] = wt.start.split(':').map(Number);
+        const [eh, em] = wt.end.split(':').map(Number);
+        let diff = (eh * 60 + em) - (sh * 60 + sm);
+        if (diff < 0) diff += 24 * 60;
+        return diff;
+      };
+
+      const activeWorkMin = getWorkMinutes(activeData.workTime);
+      const activeWorkHoursText = activeWorkMin > 0 ? `${Math.floor(activeWorkMin / 60)}시간 ${activeWorkMin % 60}분` : null;
+
+      const dailyDistance = (activeData.mileage?.end && activeData.mileage?.start) 
+        ? Math.max(0, activeData.mileage.end - activeData.mileage.start) 
+        : 0;
+
+      const currentOdo = activeData.mileage?.end || activeData.mileage?.start || 128750;
+      const warningMaint = maintList.filter(m => (m.lastKm + m.cycle - currentOdo) <= 1000);
+
+      const totalRev = activeData.income.card + activeData.income.cash + activeData.income.bank;
+      const currentMode = SHIFT_MODES.find(m => m.id === modeId) || SHIFT_MODES[0];
+      const targetDeposit = (taxiType === 'CORP')
+        ? ((modeId === 'SPLIT_24' && dynamicOn) ? Math.round(currentMode.target * (myHours / 24)) : currentMode.target)
+        : 0;
+
+      // 당일 기준 지출 집계
+      const todayExpenses = expenses.filter(e => e.date === viewDate);
+      const personalExpTotal = todayExpenses.filter(e => e.type === 'personal').reduce((sum, e) => sum + e.amount, 0);
+      const companyExpTotal = todayExpenses.filter(e => e.type === 'company').reduce((sum, e) => sum + e.amount, 0);
+      const carExpTotal = todayExpenses.filter(e => e.type === 'car').reduce((sum, e) => sum + e.amount, 0);
+      const allExpTotal = personalExpTotal + companyExpTotal + carExpTotal;
+
+      // 사납금 대비 초과금 (개인 식비 완전 배제)
+      const diffDeposit = totalRev - targetDeposit;
+      const corpSalaryTake = diffDeposit > 0 ? Math.round(diffDeposit * 0.7) : 0;
+      const indivNetProfit = totalRev - allExpTotal;
+
+      const currentNetProfit = taxiType === 'CORP' ? corpSalaryTake : indivNetProfit;
+      const hourlyWage = (activeWorkMin > 0 && currentNetProfit > 0) 
+        ? Math.round(currentNetProfit / (activeWorkMin / 60)) 
+        : 0;
+
+      const workedRecords = Object.values(records).filter(r => (r.income?.card || 0) + (r.income?.cash || 0) + (r.income?.bank || 0) > 0);
+      const totalWorkedDays = workedRecords.length || 1;
+      const monthlyTotalRev = Object.values(records).reduce((sum, r) => sum + (r.income?.card || 0) + (r.income?.cash || 0) + (r.income?.bank || 0), 0);
+      const avgDailyIncome = Math.round(monthlyTotalRev / totalWorkedDays);
+
+      const totalWorkedMinutes = workedRecords.reduce((sum, r) => sum + getWorkMinutes(r.workTime), 0);
+      const avgDailyWorkHours = (totalWorkedMinutes > 0) ? (totalWorkedMinutes / totalWorkedDays / 60).toFixed(1) : (activeWorkMin / 60).toFixed(1);
+
+      const toggleStatus = () => {
+        const nowStr = new Date().toTimeString().slice(0, 5);
+        updateActiveRecord(curr => {
+          let next = '대기';
+          let wt = { ...curr.workTime };
+          if (curr.status === '대기') { next = '운행중'; if (!wt.start) wt.start = nowStr; }
+          else if (curr.status === '운행중') { next = '마감'; wt.end = nowStr; }
+          return { ...curr, status: next, workTime: wt };
+        });
+      };
+
+      const handleExpPressStart = (exp) => {
+        isLongPressed.current = false;
+        longPressTimeout.current = setTimeout(() => {
+          isLongPressed.current = true;
+          if (confirm(`[${exp.category}] 항목을 수정하시겠습니까?\n취소 시 삭제 여부를 묻습니다.`)) {
+            const newAmt = prompt('새로운 금액(원):', exp.amount);
+            const newDesc = prompt('새로운 메모:', exp.desc);
+            if (newAmt && !isNaN(newAmt)) {
+              setExpenses(prev => prev.map(item => item.id === exp.id ? { ...item, amount: Number(newAmt), desc: newDesc || '' } : item));
+            }
+          } else {
+            if (confirm('이 항목을 완전히 삭제하시겠습니까?')) {
+              setExpenses(prev => prev.filter(item => item.id !== exp.id));
+            }
+          }
+        }, 700);
+      };
+
+      const handleExpPressEnd = () => { clearTimeout(longPressTimeout.current); };
+
+      const handleCalTouchStart = (e, dateStr, holiObj) => {
+        isLongPressed.current = false;
+        longPressTimeout.current = setTimeout(() => {
+          isLongPressed.current = true;
+          if (confirm(`[${dateStr}]\n회사 관리 연동 휴일(휴무)을 설정/취소하시겠습니까?`)) {
+            setHolidays(p => holiObj ? p.filter(h => h.date !== dateStr) : [...p, { date: dateStr, status: '승인' }]);
+          }
+        }, 700);
+      };
+
+      const handleCalTouchEnd = () => { clearTimeout(longPressTimeout.current); };
+
+      const handleCalClick = (dateStr) => {
+        if (isLongPressed.current) return;
+        setViewDate(dateStr);
+        setCurrentTab('hud');
+      };
+
+      // 모바일 최적화 딥링크
+      const openNavi = (app) => {
+        const query = encodeURIComponent('LPG 충전소');
+        const isAndroid = /Android/i.test(navigator.userAgent);
+        
+        if (app === 'tmap') {
+          if (isAndroid) {
+            window.location.href = `intent://search?name=${query}#Intent;scheme=tmap;package=com.skt.tmap.ku;end`;
+          } else {
+            window.location.href = `tmap://search?name=${query}`;
+          }
+        } else if (app === 'kakao') {
+          window.location.href = `kakaomap://search?q=${query}`;
+          setTimeout(() => {
+            window.location.href = `kakaonavi://search?name=${query}`;
+          }, 500);
+        } else {
+          window.open(`https://m.map.naver.com/search2/search.naver?query=${query}`, '_blank');
+        }
+      };
+
+      const exportJSON = () => {
+        const fullData = { records, expenses, holidays, maintList, shiftPosts, roadPosts, routines, taxiType, carNo, modeId };
+        const blob = new Blob([JSON.stringify(fullData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `KTAXI_전체백업_${getTodayStr()}.json`;
+        a.click();
+      };
+
+      const importJSON = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const data = JSON.parse(event.target.result);
+            if (data.records) setRecords(data.records);
+            if (data.expenses) setExpenses(data.expenses);
+            if (data.holidays) setHolidays(data.holidays);
+            if (data.maintList) setMaintList(data.maintList);
+            if (data.shiftPosts) setShiftPosts(data.shiftPosts);
+            if (data.roadPosts) setRoadPosts(data.roadPosts);
+            if (data.routines) setRoutines(data.routines);
+            alert('데이터가 성공적으로 복원되었습니다.');
+          } catch (err) { alert('올바른 백업 파일이 아닙니다.'); }
+        };
+        reader.readAsText(file);
+      };
+
+      return (
+        <div class="flex-1 flex flex-col justify-between p-3.5 max-w-md mx-auto w-full relative">
+          
+          {/* 헤더 */}
+          <header class="space-y-2.5">
+            <div class="bg-slate-900 border border-slate-800/90 rounded-2xl p-2.5 flex items-center justify-between shadow-md">
+              <div class="flex items-center space-x-2">
+                <span class={`px-2 py-0.5 rounded-lg font-black text-[11px] ${
+                  taxiType === 'CORP' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                }`}>
+                  {taxiType === 'CORP' ? '법인' : '개인'}
+                </span>
+                <span class="text-xs font-mono font-bold text-slate-300">
+                  {carNo}
+                </span>
+                {taxiType === 'CORP' && (
+                  <span class="text-[10px] text-slate-500 hidden sm:inline">({currentMode.name})</span>
+                )}
+              </div>
+
+              <div class="flex items-center space-x-1.5">
+                <div class="flex items-center space-x-1 bg-slate-950/80 border border-slate-800 rounded-xl px-2 py-1 text-[11px] font-mono">
+                  <span onClick={() => setTimeModal({ target: 'start', initial: activeData.workTime.start })} class="cursor-pointer hover:text-amber-300">
+                    출 <b class="text-white">{activeData.workTime.start || '--:--'}</b>
+                  </span>
+                  <span class="text-slate-700">|</span>
+                  <span onClick={() => setTimeModal({ target: 'end', initial: activeData.workTime.end })} class="cursor-pointer hover:text-amber-300">
+                    퇴 <b class="text-white">{activeData.workTime.end || '--:--'}</b>
+                  </span>
+                </div>
+
+                <button 
+                  onClick={toggleStatus}
+                  class={`px-2.5 py-1 rounded-xl font-black text-xs transition-colors shadow-sm ${
+                    activeData.status === '운행중' ? 'bg-emerald-600 text-white' : 
+                    activeData.status === '마감' ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-300'
+                  }`}
+                >
+                  ● {activeData.status}
+                </button>
+                <button onClick={() => setModal(true)} class="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-300 text-xs">⚙️</button>
+              </div>
+            </div>
+
+            {/* 네비게이션 탭 */}
+            <div class="grid grid-cols-5 gap-1 bg-slate-900/90 p-1 rounded-2xl border border-slate-800/80 text-center">
+              <button onClick={() => setCurrentTab('hud')} class={`py-2 rounded-xl text-[11px] font-bold transition-all ${currentTab === 'hud' ? 'bg-amber-400 text-slate-950 font-black shadow' : 'text-slate-400 hover:text-slate-200'}`}>당일HUD</button>
+              <button onClick={() => setCurrentTab('book')} class={`py-2 rounded-xl text-[11px] font-bold transition-all ${currentTab === 'book' ? 'bg-amber-400 text-slate-950 font-black shadow' : 'text-slate-400 hover:text-slate-200'}`}>차계부/정비</button>
+              <button onClick={() => setCurrentTab('cal')} class={`py-2 rounded-xl text-[11px] font-bold transition-all ${currentTab === 'cal' ? 'bg-amber-400 text-slate-950 font-black shadow' : 'text-slate-400 hover:text-slate-200'}`}>달력정산</button>
+              <button onClick={() => setCurrentTab('comm')} class={`py-2 rounded-xl text-[11px] font-bold transition-all ${currentTab === 'comm' ? 'bg-amber-400 text-slate-950 font-black shadow' : 'text-slate-400 hover:text-slate-200'}`}>소통공유</button>
+              <button onClick={() => setCurrentTab('alarm')} class={`py-2 rounded-xl text-[11px] font-bold transition-all ${currentTab === 'alarm' ? 'bg-amber-400 text-slate-950 font-black shadow' : 'text-slate-400 hover:text-slate-200'}`}>중요알람</button>
+            </div>
+          </header>
+
+          {warningMaint.length > 0 && currentTab === 'hud' && (
+            <div class="bg-amber-500/20 border border-amber-500/50 p-2 rounded-2xl flex items-center justify-between text-xs text-amber-300 my-1">
+              <span>⚠️ [정비 알림] <b>{warningMaint.map(w => w.name).join(', ')}</b> 주기 임박!</span>
+              <button onClick={() => setCurrentTab('book')} class="px-2 py-0.5 bg-amber-400 text-slate-950 rounded font-black text-[10px]">확인</button>
+            </div>
+          )}
+
+          {isAlarmRinging && (
+            <div class="bg-rose-600 p-3 rounded-2xl animate-bounce flex justify-between items-center text-white my-1 shadow-2xl">
+              <span class="font-black text-xs">{alarmBanner}</span>
+              <button onClick={stopAlarm} class="bg-white text-rose-700 px-3 py-1 rounded-xl font-black text-xs">해제</button>
+            </div>
+          )}
+
+          {/* 1. 당일 HUD */}
+          {currentTab === 'hud' && (
+            <main class="my-auto space-y-2.5">
+              <div class="grid grid-cols-3 gap-2 bg-slate-900 border border-slate-800 p-2.5 rounded-2xl text-center shadow-lg">
+                <div class="border-r border-slate-800">
+                  <span class="text-[10px] text-slate-400 font-bold block">운행 / 평균시간</span>
+                  <span class="text-xs font-black text-amber-400 mt-0.5 block">
+                    {activeWorkHoursText || `${avgDailyWorkHours}h (평균)`}
+                  </span>
+                </div>
+                <div class="border-r border-slate-800">
+                  <span class="text-[10px] text-emerald-400 font-bold block">실시간 평균 시급</span>
+                  <span class="text-xs font-black text-emerald-300 mt-0.5 block">
+                    {hourlyWage > 0 ? `${hourlyWage.toLocaleString()}원/h` : '운행중 계산'}
+                  </span>
+                </div>
+                <div>
+                  <span class="text-[10px] text-blue-400 font-bold block">일평균 매출 수입</span>
+                  <span class="text-xs font-black text-blue-300 mt-0.5 block">
+                    {avgDailyIncome > 0 ? `${(avgDailyIncome / 10000).toFixed(1)}만원` : '0원'}
+                  </span>
+                </div>
+              </div>
+
+              <div class="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-2xl">
+                <div class="flex justify-between items-center mb-1">
+                  <span class="text-slate-400 text-xs font-semibold">실시간 총 매출 ({activeData.income.count}회)</span>
+                  <span class="text-[11px] bg-slate-800 text-amber-400 px-2 py-0.5 rounded font-mono font-bold">
+                    오늘 주행: {dailyDistance} km
+                  </span>
+                </div>
+
+                <div class="text-3xl font-black text-amber-400 tracking-tight">
+                  {totalRev.toLocaleString()}<span class="text-lg ml-1 text-white">원</span>
+                </div>
+
+                <div class="grid grid-cols-3 gap-1.5 mt-2.5 pt-2.5 border-t border-slate-800/80 text-center">
+                  <div onClick={() => {
+                    const v = prompt('카드 금액 수정:', activeData.income.card);
+                    if (v !== null && !isNaN(v)) updateActiveRecord(c => ({ ...c, income: { ...c.income, card: Number(v) } }));
+                  }} class="bg-slate-800/60 p-1.5 rounded-xl cursor-pointer border border-slate-700/50">
+                    <span class="text-[9px] text-blue-400 font-bold block">카드 ✎</span>
+                    <span class="text-[11px] font-bold text-white block mt-0.5">{activeData.income.card.toLocaleString()}원</span>
+                  </div>
+                  <div onClick={() => {
+                    const v = prompt('현금 금액 수정:', activeData.income.cash);
+                    if (v !== null && !isNaN(v)) updateActiveRecord(c => ({ ...c, income: { ...c.income, cash: Number(v) } }));
+                  }} class="bg-slate-800/60 p-1.5 rounded-xl cursor-pointer border border-slate-700/50">
+                    <span class="text-[9px] text-emerald-400 font-bold block">현금 ✎</span>
+                    <span class="text-[11px] font-bold text-white block mt-0.5">{activeData.income.cash.toLocaleString()}원</span>
+                  </div>
+                  <div onClick={() => {
+                    const v = prompt('통장입금 수정:', activeData.income.bank);
+                    if (v !== null && !isNaN(v)) updateActiveRecord(c => ({ ...c, income: { ...c.income, bank: Number(v) } }));
+                  }} class="bg-slate-800/60 p-1.5 rounded-xl cursor-pointer border border-slate-700/50">
+                    <span class="text-[9px] text-purple-400 font-bold block">통장 ✎</span>
+                    <span class="text-[11px] font-bold text-white block mt-0.5">{activeData.income.bank.toLocaleString()}원</span>
+                  </div>
+                </div>
+
+                <div class="mt-2.5 pt-2.5 border-t border-slate-800/80 space-y-1.5">
+                  {taxiType === 'CORP' ? (
+                    <>
+                      <div class="flex justify-between items-center text-xs">
+                        <span class="text-slate-400">사납금 달성 현황 (기준: {targetDeposit.toLocaleString()}원)</span>
+                        {diffDeposit >= 0 ? (
+                          <span class="text-blue-400 font-bold font-mono">초과 +{diffDeposit.toLocaleString()}원 달성</span>
+                        ) : (
+                          <span class="text-rose-400 font-bold font-mono">{Math.abs(diffDeposit).toLocaleString()}원 부족</span>
+                        )}
+                      </div>
+
+                      <div class="flex justify-between items-center pt-0.5">
+                        <span class="text-xs text-emerald-400 font-bold">월 급여 반영액(초과분의 70%)</span>
+                        <span class={`text-base font-black ${corpSalaryTake > 0 ? 'text-emerald-400' : 'text-slate-400'}`}>
+                          {corpSalaryTake > 0 ? `+${corpSalaryTake.toLocaleString()} 원` : '0 원 (미달)'}
+                        </span>
+                      </div>
+
+                      <div class="flex justify-between items-center pt-1 border-t border-slate-800/50 text-[11px] text-slate-400">
+                        <span>개인 지출 (식비/음료 등)</span>
+                        <span class="font-mono text-slate-300 font-bold">{personalExpTotal.toLocaleString()}원 <span class="text-[9px] text-slate-500 font-normal">(급여 미반영)</span></span>
+                      </div>
+                    </>
+                  ) : (
+                    <div class="flex justify-between items-center">
+                      <div>
+                        <span class="text-xs text-cyan-400 font-bold">사업 순이익</span>
+                        <div class="text-[10px] text-slate-500">지출 {allExpTotal.toLocaleString()}원 차감</div>
+                      </div>
+                      <span class={`text-xl font-black ${indivNetProfit >= 0 ? 'text-cyan-400' : 'text-rose-500'}`}>
+                        {indivNetProfit >= 0 ? `+${indivNetProfit.toLocaleString()}` : indivNetProfit.toLocaleString()} 원
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-2.5 flex justify-between items-center">
+                <span class="text-xs font-bold text-slate-300">계기판 주행거리</span>
+                <div class="flex items-center space-x-1 font-mono text-xs">
+                  <input 
+                    type="number" value={activeData.mileage?.start || ''} 
+                    onFocus={e => e.target.select()}
+                    onChange={e => updateActiveRecord(c => ({ ...c, mileage: { ...c.mileage, start: Number(e.target.value) } }))}
+                    class="w-16 bg-slate-800 border border-slate-700 rounded-lg p-1 text-center text-white font-bold"
+                    placeholder="출근km"
+                  />
+                  <span class="text-slate-500">→</span>
+                  <input 
+                    type="number" value={activeData.mileage?.end || ''} 
+                    onFocus={e => e.target.select()}
+                    onChange={e => updateActiveRecord(c => ({ ...c, mileage: { ...c.mileage, end: Number(e.target.value) } }))}
+                    class="w-16 bg-slate-800 border border-slate-700 rounded-lg p-1 text-center text-white font-bold"
+                    placeholder="퇴근km"
+                  />
+                </div>
+              </div>
+
+              <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-2.5">
+                <div class="flex justify-between items-center mb-1.5">
+                  <span class="text-xs font-bold text-amber-400">⚡ 쪽잠 안심 타이머</span>
+                  {timerRunning && (
+                    <span class="text-xs bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded font-mono font-bold">
+                      남은시간 {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
+                    </span>
+                  )}
+                </div>
+                <div class="grid grid-cols-4 gap-1.5">
+                  {[15, 30, 45].map(m => (
+                    <button key={m} onClick={() => { setTimeLeft(m * 60); setTimerRunning(true); setIsAlarmRinging(false); }} class="py-2 bg-slate-800 rounded-xl text-xs font-bold text-slate-200">{m}분</button>
+                  ))}
+                  <button onClick={() => {
+                    const v = prompt('분 입력:');
+                    if (v && Number(v) > 0) { setTimeLeft(parseInt(v) * 60); setTimerRunning(true); setIsAlarmRinging(false); }
+                  }} class="py-2 bg-amber-500/20 border border-amber-500/40 rounded-xl text-xs font-bold text-amber-300">직접입력</button>
+                </div>
+              </div>
+
+              <div class="flex items-center space-x-1.5 bg-slate-900/50 p-2 rounded-2xl border border-slate-800/80">
+                <span class="text-[10px] text-slate-400 font-bold px-1">충전소</span>
+                <button onClick={() => openNavi('tmap')} class="flex-1 py-1.5 bg-slate-800 active:scale-95 rounded-xl text-xs font-bold text-slate-300">티맵</button>
+                <button onClick={() => openNavi('kakao')} class="flex-1 py-1.5 bg-yellow-500/10 border border-yellow-500/30 active:scale-95 rounded-xl text-xs font-bold text-yellow-300">카카오</button>
+                <button onClick={() => openNavi('naver')} class="flex-1 py-1.5 bg-emerald-500/10 border border-emerald-500/30 active:scale-95 rounded-xl text-xs font-bold text-emerald-300">네이버</button>
+              </div>
+            </main>
+          )}
+
+          {/* 2. 차계부 / 정비주기 */}
+          {currentTab === 'book' && (
+            <main class="my-auto space-y-3">
+              <div class="flex justify-between items-center">
+                <h2 class="text-base font-black text-white">소모품 정비 & 지출 장부</h2>
+                <button 
+                  onClick={() => setBookModal(true)} 
+                  class="px-3 py-1.5 bg-amber-400 active:scale-95 text-slate-950 font-black text-xs rounded-xl shadow flex items-center space-x-1"
+                >
+                  <span>+ 항목 추가</span>
+                </button>
+              </div>
+
+              <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3 space-y-2">
+                <span class="text-xs font-bold text-slate-300 block">🔧 정기 소모품 주기 모니터링 (현재 {currentOdo.toLocaleString()}km)</span>
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                  {maintList.map(m => {
+                    const left = (m.lastKm + m.cycle) - currentOdo;
+                    const isUrgent = left <= 1000;
+                    return (
+                      <div key={m.id} class={`p-2 rounded-xl border ${isUrgent ? 'bg-rose-950/40 border-rose-600' : 'bg-slate-800/50 border-slate-700/60'}`}>
+                        <div class="flex justify-between font-bold">
+                          <span class="text-white text-[11px] truncate mr-1">{m.name}</span>
+                          <span class={`text-[10px] whitespace-nowrap ${isUrgent ? 'text-rose-400 animate-pulse' : 'text-slate-400'}`}>
+                            {left > 0 ? `${left.toLocaleString()}km` : `초과!`}
+                          </span>
+                        </div>
+                        <div class="text-[9px] text-slate-500 mt-0.5">주기: {m.cycle.toLocaleString()}km</div>
+                        <button 
+                          onClick={() => {
+                            if (confirm(`[${m.name}] 교체를 완료하셨습니까?\n현재 계기판(${currentOdo}km)으로 초기화합니다.`)) {
+                              setMaintList(p => p.map(x => x.id === m.id ? { ...x, lastKm: currentOdo } : x));
+                            }
+                          }}
+                          class="mt-1 w-full py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-[9px] text-slate-300"
+                        >
+                          교체완료 갱신
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div class="space-y-1">
+                <span class="text-[11px] text-slate-400">※ 지출 항목을 0.7초간 꾹 누르면 수정/삭제 창이 뜹니다.</span>
+                <div class="bg-slate-900 border border-slate-800 rounded-3xl p-3 max-h-[35vh] overflow-y-auto space-y-2">
+                  {expenses.map(e => (
+                    <div 
+                      key={e.id}
+                      onMouseDown={() => handleExpPressStart(e)}
+                      onMouseUp={handleExpPressEnd}
+                      onTouchStart={() => handleExpPressStart(e)}
+                      onTouchEnd={handleExpPressEnd}
+                      class="flex justify-between items-center p-3 bg-slate-800/60 border border-slate-700/60 rounded-2xl cursor-pointer select-none active:bg-slate-700"
+                    >
+                      <div>
+                        <span class="text-xs font-bold text-white block">{e.category}</span>
+                        <span class="text-[10px] text-slate-400">{e.desc}</span>
+                      </div>
+                      <span class="text-xs font-black text-amber-400">{e.amount.toLocaleString()}원</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </main>
+          )}
+
+          {/* 3. 달력 / 정산 */}
+          {currentTab === 'cal' && (
+            <main class="my-auto space-y-3">
+              <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3 grid grid-cols-3 gap-2 text-center shadow-lg">
+                <div>
+                  <span class="text-[10px] text-slate-400 block font-bold">일평균 근로시간</span>
+                  <div class="text-xs font-black text-amber-400 mt-0.5">{avgDailyWorkHours}시간</div>
+                </div>
+                <div>
+                  <span class="text-[10px] text-emerald-400 block font-bold">월평균 일수입</span>
+                  <div class="text-xs font-black text-emerald-300 mt-0.5">{avgDailyIncome.toLocaleString()}원</div>
+                </div>
+                <div>
+                  <span class="text-[10px] text-rose-400 block font-bold">등록 휴일수</span>
+                  <div class="text-xs font-black text-rose-400 mt-0.5">{holidays.length}일 등록</div>
+                </div>
+              </div>
+
+              <div class="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-2xl">
+                <div class="flex justify-between items-center mb-3">
+                  <h2 class="font-black text-white text-base">2026년 9월</h2>
+                  <span class="text-[10px] text-amber-400 bg-amber-950/40 px-2 py-0.5 rounded-full border border-amber-800/50">
+                    길게 눌러 휴무 신청/승인
+                  </span>
+                </div>
+                <div class="grid grid-cols-7 gap-1 text-center text-[11px] font-bold text-slate-500 mb-1">
+                  <div class="text-rose-400">일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div class="text-blue-400">토</div>
+                </div>
+                <div class="grid grid-cols-7 gap-1 text-center font-bold text-xs">
+                  {Array.from({ length: 2 }).map((_, i) => <div key={`e-${i}`} class="aspect-square"></div>)}
+                  {Array.from({ length: 30 }).map((_, i) => {
+                    const day = i + 1;
+                    const dateStr = `2026-09-${String(day).padStart(2, '0')}`;
+                    const holiObj = holidays.find(h => h.date === dateStr);
+                    const isToday = day === 25;
+                    const hasData = records[dateStr] && (records[dateStr].income.card + records[dateStr].income.cash + records[dateStr].income.bank) > 0;
+
+                    return (
+                      <div
+                        key={dateStr}
+                        onClick={() => handleCalClick(dateStr)}
+                        onMouseDown={e => handleCalTouchStart(e, dateStr, holiObj)}
+                        onMouseUp={handleCalTouchEnd}
+                        onTouchStart={e => handleCalTouchStart(e, dateStr, holiObj)}
+                        onTouchEnd={handleCalTouchEnd}
+                        class={`aspect-square flex flex-col items-center justify-center rounded-xl border transition-all cursor-pointer relative select-none ${
+                          holiObj ? 'bg-rose-950/60 border-rose-600 text-rose-300' :
+                          isToday ? 'bg-amber-400/20 border-amber-400 text-amber-300' : 'bg-slate-800/40 border-slate-800 text-slate-300'
+                        }`}
+                      >
+                        <span class="text-sm">{day}</span>
+                        {holiObj ? <span class="text-[8px] text-rose-400 font-black">휴일</span> : hasData ? <span class="text-[7px] text-emerald-400">●기록</span> : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </main>
+          )}
+
+          {/* 4. 기사 커뮤니티 */}
+          {currentTab === 'comm' && (
+            <main class="my-auto space-y-3">
+              <div class="flex justify-between items-center">
+                <div>
+                  <h2 class="text-base font-black text-white">현장 소통 게시판</h2>
+                  <span class="text-[10px] text-slate-400">차량번호: <b>{carNo}</b></span>
+                </div>
+                <div class="grid grid-cols-2 gap-1 bg-slate-900 p-1 border border-slate-800 rounded-xl">
+                  <button onClick={() => setCommSubTab('shift')} class={`px-2.5 py-1 rounded-lg text-xs font-bold ${commSubTab === 'shift' ? 'bg-amber-400 text-slate-950' : 'text-slate-400'}`}>
+                    1:1 교대인계
+                  </button>
+                  <button onClick={() => setCommSubTab('road')} class={`px-2.5 py-1 rounded-lg text-xs font-bold ${commSubTab === 'road' ? 'bg-amber-400 text-slate-950' : 'text-slate-400'}`}>
+                    단속/사고
+                  </button>
+                </div>
+              </div>
+
+              {commSubTab === 'shift' ? (
+                <div class="space-y-2">
+                  <div class="bg-blue-950/30 border border-blue-800/50 p-2.5 rounded-2xl text-xs text-blue-200">
+                    🔒 차량 <b>[{carNo}]</b>의 전/후 교대 기사만 공유하는 1:1 인계장입니다.
+                  </div>
+                  <div class="bg-slate-900 border border-slate-800 rounded-3xl p-3 max-h-[42vh] overflow-y-auto space-y-2">
+                    {shiftPosts.filter(p => p.carNo === carNo).map(p => (
+                      <div key={p.id} class="p-3 bg-slate-800/70 border border-slate-700/60 rounded-2xl">
+                        <div class="flex justify-between items-center mb-1">
+                          <span class="text-xs font-black text-amber-400">{p.sender}</span>
+                          <span class="text-[10px] text-slate-500 font-mono">{p.time}</span>
+                        </div>
+                        <p class="text-xs text-white leading-relaxed">{p.text}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={() => {
+                    const text = prompt(`[${carNo}] 교대 기사에게 남길 인계사항을 입력하세요:`);
+                    if (text) setShiftPosts(prev => [{ id: Date.now(), carNo, sender: '내 메시지', text, time: new Date().toTimeString().slice(0, 5) }, ...prev]);
+                  }} class="w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-2xl font-black text-xs text-white shadow">
+                    + 교대 인계사항 작성
+                  </button>
+                </div>
+              ) : (
+                <div class="space-y-2">
+                  <div class="bg-slate-900 border border-slate-800 rounded-3xl p-3 max-h-[46vh] overflow-y-auto space-y-2">
+                    {roadPosts.map(p => (
+                      <div key={p.id} class="p-3 bg-slate-800/70 border border-slate-700/60 rounded-2xl">
+                        <div class="flex justify-between items-center mb-1">
+                          <span class="text-xs font-black text-rose-400">{p.title}</span>
+                          <span class="text-[10px] text-slate-500 font-mono">{p.time}</span>
+                        </div>
+                        <p class="text-xs text-white leading-relaxed">{p.text}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={() => {
+                    const title = prompt('위치 또는 단속 종류:');
+                    const text = prompt('상세 내용:');
+                    if (title && text) setRoadPosts(prev => [{ id: Date.now(), title, text, time: new Date().toTimeString().slice(0, 5) }, ...prev]);
+                  }} class="w-full py-3 bg-rose-600 hover:bg-rose-500 rounded-2xl font-black text-xs text-white shadow">
+                    + 도로 상황 제보하기
+                  </button>
+                </div>
+              )}
+            </main>
+          )}
+
+          {/* 5. 중요 정기 알람 */}
+          {currentTab === 'alarm' && (
+            <main class="my-auto space-y-3">
+              <div class="flex justify-between items-center">
+                <div>
+                  <h2 class="text-base font-black text-white">중요 정기 알람</h2>
+                  <span class="text-[10px] text-slate-400">복약/휴식 시간 터치 시 즉시 수정</span>
+                </div>
+                <button onClick={() => {
+                  const lbl = prompt('알람 명칭 (예: 혈압약 복용):');
+                  if (lbl) setRoutines(p => [...p, { id: Date.now(), label: lbl, time: '12:00', enabled: true }]);
+                }} class="px-3 py-1 bg-amber-400 active:scale-95 text-slate-950 font-black text-xs rounded-xl shadow">
+                  + 알람 추가
+                </button>
+              </div>
+
+              <div class="bg-slate-900 border border-slate-800 rounded-3xl p-3 max-h-[50vh] overflow-y-auto space-y-2">
+                {routines.map(r => (
+                  <div key={r.id} class="p-3 bg-slate-800/70 border border-slate-700/60 rounded-2xl flex justify-between items-center">
+                    <div class="cursor-pointer" onClick={() => {
+                      const newLbl = prompt('알람 내용 수정:', r.label);
+                      if (newLbl) setRoutines(p => p.map(x => x.id === r.id ? { ...x, label: newLbl } : x));
+                    }}>
+                      <div class="text-xs font-black text-white">{r.label} ✎</div>
+                      <div 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setTimeModal({ target: 'routine', id: r.id, initial: r.time });
+                        }}
+                        class="text-amber-400 font-mono font-bold text-base mt-0.5 hover:underline"
+                      >
+                        {r.time}
+                      </div>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                      <button 
+                        onClick={() => setRoutines(p => p.map(x => x.id === r.id ? { ...x, enabled: !x.enabled } : x))}
+                        class={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${r.enabled ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-slate-700 text-slate-400'}`}
+                      >
+                        {r.enabled ? '켜짐' : '꺼짐'}
+                      </button>
+                      <button onClick={() => setRoutines(p => p.filter(x => x.id !== r.id))} class="text-slate-500 text-xs px-1 hover:text-rose-400">✕</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </main>
+          )}
+
+          {/* 하단 퀵 결제 입력 */}
+          <footer class="safe-bottom space-y-2">
+            {currentTab === 'hud' && (
+              <div class="grid grid-cols-3 gap-2">
+                <button onClick={() => {
+                  const v = prompt('카드 승객 요금:');
+                  if (v && Number(v) > 0) updateActiveRecord(c => ({ ...c, income: { ...c.income, card: c.income.card + Number(v), count: c.income.count + 1 } }));
+                }} class="h-16 bg-blue-600 active:bg-blue-700 active:scale-98 rounded-2xl flex flex-col items-center justify-center font-bold text-white shadow-lg">
+                  <span class="text-[10px] opacity-80">+ 결제추가</span>
+                  <span class="text-base font-black">카드</span>
+                </button>
+                <button onClick={() => {
+                  const v = prompt('현금 승객 요금:');
+                  if (v && Number(v) > 0) updateActiveRecord(c => ({ ...c, income: { ...c.income, cash: c.income.cash + Number(v), count: c.income.count + 1 } }));
+                }} class="h-16 bg-emerald-600 active:bg-emerald-700 active:scale-98 rounded-2xl flex flex-col items-center justify-center font-bold text-white shadow-lg">
+                  <span class="text-[10px] opacity-80">+ 결제추가</span>
+                  <span class="text-base font-black">현금</span>
+                </button>
+                <button onClick={() => {
+                  const v = prompt('통장 입금 요금:');
+                  if (v && Number(v) > 0) updateActiveRecord(c => ({ ...c, income: { ...c.income, bank: c.income.bank + Number(v), count: c.income.count + 1 } }));
+                }} class="h-16 bg-purple-600 active:bg-purple-700 active:scale-98 rounded-2xl flex flex-col items-center justify-center font-bold text-white shadow-lg">
+                  <span class="text-[10px] opacity-80">+ 계좌이체</span>
+                  <span class="text-base font-black">통장입금</span>
+                </button>
+              </div>
+            )}
+          </footer>
+
+          {/* 차계부 항목 추가 전용 모달 */}
+          {bookModal && (
+            <BookItemModal 
+              currentOdo={currentOdo}
+              onAddMaint={(newItem) => {
+                setMaintList(p => [...p, { id: 'm_' + Date.now(), ...newItem }]);
+                setBookModal(false);
+              }}
+              onAddExpense={(newExp) => {
+                setExpenses(p => [{ id: Date.now(), date: viewDate, ...newExp }, ...p]);
+                setBookModal(false);
+              }}
+              onClose={() => setBookModal(false)}
+            />
+          )}
+
+          {/* 시간 설정 모달 */}
+          {timeModal && (
+            <div class="absolute inset-0 bg-black/85 backdrop-blur-sm z-50 p-4 flex flex-col justify-center items-center">
+              <div class="bg-slate-900 border border-slate-700 rounded-3xl p-5 w-full max-w-xs space-y-4">
+                <h3 class="text-base font-black text-white text-center">시간 설정</h3>
+                <TimePickerForm 
+                  initialTime={timeModal.initial} 
+                  onSave={(ampm, hour, minute) => {
+                    let h = parseInt(hour, 10) || 0;
+                    let m = parseInt(minute, 10) || 0;
+                    if (ampm === 'PM' && h < 12) h += 12;
+                    if (ampm === 'AM' && h === 12) h = 0;
+                    const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                    if (timeModal.target === 'routine') {
+                      setRoutines(p => p.map(x => x.id === timeModal.id ? { ...x, time: timeStr } : x));
+                    } else {
+                      updateActiveRecord(c => ({ ...c, workTime: { ...c.workTime, [timeModal.target]: timeStr } }));
+                    }
+                    setTimeModal(null);
+                  }} 
+                  onCancel={() => setTimeModal(null)} 
+                />
+              </div>
+            </div>
+          )}
+
+          {/* 시스템 설정 모달 */}
+          {modal && (
+            <div class="absolute inset-0 bg-black/85 backdrop-blur-sm z-50 p-4 flex flex-col justify-end">
+              <div class="bg-slate-900 border border-slate-700 rounded-3xl p-5 space-y-3 max-h-[85vh] overflow-y-auto">
+                <div class="flex justify-between items-center pb-2 border-b border-slate-800">
+                  <h2 class="text-lg font-bold text-white">기사 및 차량 설정</h2>
+                  <button onClick={() => setModal(false)} class="text-slate-400 text-lg font-bold p-1">✕</button>
+                </div>
+
+                <div>
+                  <label class="text-xs text-slate-400 font-semibold block mb-1">내 차량번호 (1:1 교대 매칭용)</label>
+                  <input 
+                    type="text" value={carNo} onChange={e => setCarNo(e.target.value)}
+                    class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-sm font-bold text-white focus:outline-none focus:border-amber-400 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label class="text-xs text-slate-400 font-semibold block mb-2">택시 면허 구분 (신중히 변경)</label>
+                  <div class="grid grid-cols-2 gap-2">
+                    <button 
+                      onClick={() => setTaxiType('CORP')}
+                      class={`py-2.5 rounded-xl border font-bold text-xs ${taxiType === 'CORP' ? 'bg-amber-500/20 border-amber-500 text-white' : 'bg-slate-800 text-slate-400 border-slate-700'}`}
+                    >
+                      법인 택시
+                    </button>
+                    <button 
+                      onClick={() => setTaxiType('INDIV')}
+                      class={`py-2.5 rounded-xl border font-bold text-xs ${taxiType === 'INDIV' ? 'bg-cyan-500/20 border-cyan-400 text-white' : 'bg-slate-800 text-slate-400 border-slate-700'}`}
+                    >
+                      개인 택시
+                    </button>
+                  </div>
+                </div>
+
+                {taxiType === 'CORP' && (
+                  <div class="space-y-1.5">
+                    <span class="text-xs text-slate-400 font-semibold block">법인 근무 형태</span>
+                    {SHIFT_MODES.map(m => (
+                      <button
+                        key={m.id}
+                        onClick={() => setModeId(m.id)}
+                        class={`w-full p-2 rounded-xl border text-left flex justify-between items-center ${
+                          modeId === m.id ? 'bg-amber-500/10 border-amber-500 text-white font-bold' : 'bg-slate-800/60 border-slate-700 text-slate-400'
+                        }`}
+                      >
+                        <span class="text-xs">{m.name}</span>
+                        <span class="text-amber-400 font-mono text-xs">{m.target.toLocaleString()}원</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div class="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800">
+                  <button onClick={exportJSON} class="py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-bold text-white">
+                    📥 전체 데이터 백업
+                  </button>
+                  <button onClick={() => fileInputRef.current.click()} class="py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-bold text-amber-400">
+                    📤 백업 파일 복원
+                  </button>
+                  <input type="file" ref={fileInputRef} onChange={importJSON} accept=".json" class="hidden" />
+                </div>
+
+                <button 
+                  onClick={() => {
+                    if (confirm('현재 날짜의 운행 기록을 초기화할까요?')) {
+                      updateActiveRecord(() => ({
+                        income: { card: 0, cash: 0, bank: 0, count: 0 },
+                        workTime: { start: '', end: '' },
+                        mileage: { start: 128500, end: 128500 },
+                        status: '대기'
+                      }));
+                    }
+                  }}
+                  class="w-full py-2.5 bg-rose-950/40 text-rose-400 border border-rose-800/60 rounded-xl text-xs font-bold mt-1"
+                >
+                  선택된 날짜 데이터 리셋
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* 차계부 항목 추가 모달 */
+    function BookItemModal({ currentOdo, onAddMaint, onAddExpense, onClose }) {
+      const [type, setType] = useState('maint');
+
+      const [mName, setMName] = useState('');
+      const [mCycle, setMCycle] = useState(10000);
+      const [mLastKm, setMLastKm] = useState(currentOdo);
+
+      const [eCat, setECat] = useState('');
+      const [eAmt, setEAmt] = useState('');
+      const [eDesc, setEDesc] = useState('');
+      const [eType, setEType] = useState('personal');
+
+      const handleSave = () => {
+        if (type === 'maint') {
+          if (!mName.trim()) return alert('소모품 항목명을 입력하세요.');
+          if (!mCycle || mCycle <= 0) return alert('교환 주기를 올바르게 입력하세요.');
+          onAddMaint({ name: mName.trim(), cycle: Number(mCycle), lastKm: Number(mLastKm) || currentOdo });
+        } else {
+          if (!eCat.trim()) return alert('지출 항목명을 입력하세요.');
+          if (!eAmt || Number(eAmt) <= 0) return alert('지출 금액을 올바르게 입력하세요.');
+          onAddExpense({ type: eType, category: eCat.trim(), desc: eDesc.trim() || '직접등록', amount: Number(eAmt) });
+        }
+      };
+
+      return (
+        <div class="absolute inset-0 bg-black/85 backdrop-blur-sm z-50 p-4 flex flex-col justify-center items-center">
+          <div class="bg-slate-900 border border-slate-700 rounded-3xl p-5 w-full max-w-sm space-y-4">
+            <div class="flex justify-between items-center pb-2 border-b border-slate-800">
+              <h3 class="text-base font-black text-white">차계부 항목 추가</h3>
+              <button onClick={onClose} class="text-slate-400 font-bold text-sm">✕</button>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <button 
+                type="button" 
+                onClick={() => setType('maint')} 
+                class={`py-2 rounded-xl text-xs font-bold border transition-colors ${type === 'maint' ? 'bg-amber-400 text-slate-950 border-amber-400' : 'bg-slate-800 text-slate-400 border-slate-700'}`}
+              >
+                🔧 소모품 주기 등록
+              </button>
+              <button 
+                type="button" 
+                onClick={() => setType('expense')} 
+                class={`py-2 rounded-xl text-xs font-bold border transition-colors ${type === 'expense' ? 'bg-amber-400 text-slate-950 border-amber-400' : 'bg-slate-800 text-slate-400 border-slate-700'}`}
+              >
+                💸 지출/영수증 등록
+              </button>
+            </div>
+
+            {type === 'maint' ? (
+              <div class="space-y-3 text-xs">
+                <div>
+                  <label class="text-slate-400 block mb-1">소모품 명칭</label>
+                  <input 
+                    type="text" 
+                    value={mName} 
+                    onChange={e => setMName(e.target.value)} 
+                    placeholder="예: 점화플러그, 부동액" 
+                    class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white font-bold focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+                <div>
+                  <label class="text-slate-400 block mb-1">교환 권장 주기 (km)</label>
+                  <input 
+                    type="number" 
+                    value={mCycle} 
+                    onChange={e => setMCycle(e.target.value)} 
+                    placeholder="예: 20000" 
+                    class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white font-bold focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+                <div>
+                  <label class="text-slate-400 block mb-1">최근 교체 시점 계기판 (km)</label>
+                  <input 
+                    type="number" 
+                    value={mLastKm} 
+                    onChange={e => setMLastKm(e.target.value)} 
+                    class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white font-bold focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div class="space-y-3 text-xs">
+                <div>
+                  <label class="text-slate-400 block mb-1">지출 분류</label>
+                  <div class="grid grid-cols-3 gap-1.5">
+                    <button type="button" onClick={() => setEType('car')} class={`py-1.5 rounded-lg border font-bold ${eType === 'car' ? 'bg-amber-500/20 border-amber-500 text-amber-300' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>차량정비</button>
+                    <button type="button" onClick={() => setEType('company')} class={`py-1.5 rounded-lg border font-bold ${eType === 'company' ? 'bg-blue-500/20 border-blue-500 text-blue-300' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>LPG충전</button>
+                    <button type="button" onClick={() => setEType('personal')} class={`py-1.5 rounded-lg border font-bold ${eType === 'personal' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>식비/음료</button>
+                  </div>
+                </div>
+                <div>
+                  <label class="text-slate-400 block mb-1">항목명</label>
+                  <input 
+                    type="text" 
+                    value={eCat} 
+                    onChange={e => setECat(e.target.value)} 
+                    placeholder="예: 와이퍼 블레이드, 점심" 
+                    class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white font-bold focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+                <div>
+                  <label class="text-slate-400 block mb-1">지출 금액 (원)</label>
+                  <input 
+                    type="number" 
+                    value={eAmt} 
+                    onChange={e => setEAmt(e.target.value)} 
+                    placeholder="예: 15000" 
+                    class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white font-bold focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+                <div>
+                  <label class="text-slate-400 block mb-1">메모 (선택)</label>
+                  <input 
+                    type="text" 
+                    value={eDesc} 
+                    onChange={e => setEDesc(e.target.value)} 
+                    placeholder="상세 내역 입력" 
+                    class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white font-bold focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div class="grid grid-cols-2 gap-2 pt-2">
+              <button type="button" onClick={onClose} class="py-2.5 bg-slate-800 active:scale-95 rounded-xl text-xs font-bold text-slate-400">취소</button>
+              <button type="button" onClick={handleSave} class="py-2.5 bg-amber-400 active:scale-95 rounded-xl text-xs font-bold text-slate-950 shadow-md">저장하기</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function TimePickerForm({ initialTime, onSave, onCancel }) {
+      const parseInitial = () => {
+        if (!initialTime) return { ampm: 'AM', h: '06', m: '30' };
+        const [rawH, rawM] = initialTime.split(':').map(Number);
+        const ampm = rawH >= 12 ? 'PM' : 'AM';
+        let h = rawH % 12;
+        if (h === 0) h = 12;
+        return { ampm, h: String(h).padStart(2, '0'), m: String(rawM).padStart(2, '0') };
+      };
+
+      const init = parseInitial();
+      const [ampm, setAmpm] = useState(init.ampm);
+      const [h, setH] = useState(init.h);
+      const [m, setM] = useState(init.m);
+
+      return (
+        <div class="space-y-4">
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => setAmpm('AM')} class={`py-2 rounded-xl text-xs font-bold border transition-colors ${ampm === 'AM' ? 'bg-amber-400 text-slate-950 border-amber-400' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>오전 (AM)</button>
+            <button type="button" onClick={() => setAmpm('PM')} class={`py-2 rounded-xl text-xs font-bold border transition-colors ${ampm === 'PM' ? 'bg-amber-400 text-slate-950 border-amber-400' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>오후 (PM)</button>
+          </div>
+          <div class="flex items-center justify-center space-x-2">
+            <input 
+              type="number" min="1" max="12" value={h} 
+              onFocus={e => e.target.select()} onChange={e => setH(e.target.value)} 
+              placeholder="시"
+              class="w-20 h-12 bg-slate-800 border border-slate-700 rounded-xl text-center text-xl font-bold text-white focus:outline-none focus:border-amber-400 placeholder-slate-600" 
+            />
+            <span class="text-white font-bold text-lg">:</span>
+            <input 
+              type="number" min="0" max="59" value={m} 
+              onFocus={e => e.target.select()} onChange={e => setM(e.target.value)} 
+              placeholder="분"
+              class="w-20 h-12 bg-slate-800 border border-slate-700 rounded-xl text-center text-xl font-bold text-white focus:outline-none focus:border-amber-400 placeholder-slate-600" 
+            />
+          </div>
+          <div class="grid grid-cols-2 gap-2 pt-2">
+            <button type="button" onClick={onCancel} class="py-2.5 bg-slate-800 active:scale-95 rounded-xl text-xs font-bold text-slate-400">취소</button>
+            <button type="button" onClick={() => onSave(ampm, h, m)} class="py-2.5 bg-amber-400 active:scale-95 rounded-xl text-xs font-bold text-slate-950 shadow-md">설정 완료</button>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>
